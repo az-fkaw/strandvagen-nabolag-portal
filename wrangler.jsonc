@@ -1,0 +1,27 @@
+// The whole infrastructure, in one file: one Cloudflare Worker that serves
+// the pages in public/ and answers /api/*, plus one D1 (SQLite) database.
+// Free plan: 100,000 requests and 5 million database row reads per day.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "strandvagen-nabolag",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    // Every page address (/kalender, /naboer, ...) loads index.html;
+    // only /api/* reaches the Worker code.
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nabolag",
+      // First deploy: `npx wrangler d1 create nabolag --location weur`
+      // prints a database_id. Paste it here (README, "Første gang").
+      "database_id": "LIM-INN-ID-FRA-wrangler-d1-create"
+    }
+  ],
+  "observability": { "enabled": true }
+}
