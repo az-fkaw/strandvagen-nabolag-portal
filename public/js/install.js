@@ -59,6 +59,7 @@ export function AppCard({ cfg }) {
             <li>Trykk på Del-knappen <span class="key"><${Icon} name="share" size=${16} /></span> i Safari (nederst eller øverst på skjermen).</li>
             <li>Bla ned og velg <strong>Legg til på Hjem-skjerm</strong>.</li>
             <li>Trykk <strong>Legg til</strong>. Ikonet ligger nå på hjemskjermen.</li>
+            <li>Åpne appen fra ikonet. Første gang kan den be deg logge inn én gang til.</li>
           </ol>`
         : html`<ol class="steps">
             <li>Trykk på menyen <span class="key">⋮</span> øverst til høyre i Chrome.</li>
