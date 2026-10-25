@@ -133,4 +133,4 @@ posts, comments and activities with it.
 
 Pictures on posts (needs Cloudflare R2, free up to 10 GB but requires a card
 on the account), e-mail when something new is posted, a calendar feed phones
-can subscribe to, polls.
+can subscribe to, polls. 
