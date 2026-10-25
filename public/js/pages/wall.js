@@ -1,9 +1,9 @@
-// The front page: the wall of posts, with the next activities beside it.
+// The front page: a greeting, the wall of posts, and the next activities.
 import { html, useEffect, useState } from "../vendor/preact-htm.js";
 import {
   Avatar, Badge, Chips, Empty, Icon, Loading, SearchBox,
-  api, byId, eventLastDay, eventWhen, formatDay, fullTime, linkify, recall, remember, showError,
-  timeAgo, toast, todayISO, useDebounced,
+  api, byId, eventLastDay, eventWhen, formatDay, fullTime, hourInNorway, linkify, recall, remember,
+  showError, timeAgo, toast, todayISO, useDebounced,
 } from "../lib.js";
 
 // The optional "who in the house wrote this", remembered per device.
@@ -37,8 +37,8 @@ export function WallPage({ cfg }) {
   const filtered = category || house || q;
 
   return html`<div class="wall">
+    <${Hero} cfg=${cfg} />
     <aside class="wall-side">
-      ${cfg.welcome && html`<div class="card welcome"><p>${linkify(cfg.welcome)}</p></div>`}
       <${NextEvents} cfg=${cfg} />
     </aside>
 
@@ -73,6 +73,18 @@ export function WallPage({ cfg }) {
       ${more && html`<button class="btn block" onClick=${() => load(posts.length)}>Vis flere innlegg</button>`}
     </section>
   </div>`;
+}
+
+// The coloured band at the top: a greeting by time of day, and the
+// administrator's welcome text.
+function Hero({ cfg }) {
+  const hour = hourInNorway();
+  const hello = hour >= 5 && hour < 10 ? "God morgen" : hour >= 17 ? "God kveld" : "Hei";
+  const name = recall(NAME_KEY).split(/\s+/)[0] || cfg.me.name;
+  return html`<header class="hero">
+    <h1>${hello}, ${name}!</h1>
+    ${cfg.welcome && html`<p>${linkify(cfg.welcome)}</p>`}
+  </header>`;
 }
 
 function Composer({ cfg, onPosted }) {
