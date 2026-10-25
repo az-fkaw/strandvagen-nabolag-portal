@@ -20,7 +20,7 @@
       "database_name": "nabolag",
       // First deploy: `npx wrangler d1 create nabolag --location weur`
       // prints a database_id. Paste it here (README, "First time").
-      "database_id": "LIM-INN-ID-FRA-wrangler-d1-create"
+      "database_id": "29db03d4-8043-4c3b-b14b-697657c4221d"
     }
   ],
   "observability": { "enabled": true }
