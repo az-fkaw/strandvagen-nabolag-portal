@@ -1,5 +1,6 @@
-// The administrator's page: houses and their access, and the portal's
-// name, texts and colours. Moderation happens on the posts themselves.
+// The administrator's page: houses and their access, the portal's name,
+// texts and colours, and the space pictures take. Moderation happens on the
+// posts themselves.
 import { html, useEffect, useState } from "../vendor/preact-htm.js";
 import { Avatar, Field, Icon, Loading, Modal, api, byName, copyText, fullTime, showError, toast, useForm } from "../lib.js";
 
@@ -8,6 +9,7 @@ export function AdminPage({ cfg, reload }) {
     <div class="page-head"><h1>Admin</h1></div>
     <${Houses} cfg=${cfg} reload=${reload} />
     <${Settings} cfg=${cfg} reload=${reload} />
+    <${Storage} />
     <div class="card stack">
       <h2>Slik modererer du</h2>
       <p class="muted">
@@ -183,6 +185,30 @@ function HouseEditor({ cfg, house, onClose, onSaved }) {
       </div>
     </form>
   <//>`;
+}
+
+const sizeText = (bytes) =>
+  bytes >= 1e9
+    ? `${(bytes / 1e9).toLocaleString("nb-NO", { maximumFractionDigits: 1 })} GB`
+    : `${(bytes / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: bytes < 1e7 ? 1 : 0 })} MB`;
+
+// How much of the free picture storage is used, so it is seen coming.
+function Storage() {
+  const [use, setUse] = useState(null);
+  useEffect(() => {
+    api("/api/storage").then(setUse, showError);
+  }, []);
+  if (!use) return null;
+  const share = Math.min(100, (use.bytes / use.freeBytes) * 100);
+  return html`<section class="card stack">
+    <h2>Bilder</h2>
+    <p>
+      ${use.images} ${use.images === 1 ? "bilde" : "bilder"} bruker ${sizeText(use.bytes)} av
+      ${sizeText(use.freeBytes)} gratis lagringsplass.
+    </p>
+    <div class="meter" aria-hidden="true"><span style=${{ width: `${Math.max(share, use.bytes ? 1 : 0)}%` }}></span></div>
+    <p class="muted small">Et bilde slettes sammen med innlegget sitt.</p>
+  </section>`;
 }
 
 function Settings({ cfg, reload }) {

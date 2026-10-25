@@ -55,6 +55,17 @@ export default {
     { group: "Vær", title: "Yr", url: "https://www.yr.no", description: "Værvarsel fra Meteorologisk institutt og NRK" },
   ],
 
+  // Pictures on posts, kept in the R2 bucket named in wrangler.jsonc. The
+  // phone shrinks each picture before sending it, which also strips its
+  // hidden data (such as where it was taken).
+  images: {
+    maxPerPost: 4,
+    maxSide: 1600, // pixels, the longer side
+    quality: 0.82, // JPEG quality, 0 to 1: about 300-500 kB per picture
+    maxBytes: 4_000_000, // anything bigger is refused
+    freeBytes: 10e9, // R2's free storage, shown on the Admin page
+  },
+
   sessionDays: 365, // how long a device stays logged in
   inviteDays: 14, // how long an invitation link works
 };

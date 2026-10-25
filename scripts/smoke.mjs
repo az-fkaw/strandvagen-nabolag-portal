@@ -28,23 +28,26 @@ function check(name, ok, detail = "") {
   if (!ok) failures++;
 }
 
-// A browser-like client: keeps its own login cookie, sends JSON.
+// A browser-like client: keeps its own login cookie, sends JSON (or a
+// picture's bytes as JPEG).
 function client() {
   let cookie = "";
   return async (method, path, body, headers = {}) => {
+    const raw = body instanceof Uint8Array;
     const res = await fetch(BASE + path, {
       method,
       headers: {
-        ...(method !== "GET" && { "Content-Type": "application/json", Origin: BASE }),
+        ...(method !== "GET" && { "Content-Type": raw ? "image/jpeg" : "application/json", Origin: BASE }),
         ...(cookie && { Cookie: cookie }),
         ...headers,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
     });
     const set = res.headers.get("set-cookie");
     if (set) cookie = set.split(";")[0].endsWith("=") ? "" : set.split(";")[0];
-    const data = await res.json().catch(() => null);
-    return { status: res.status, data };
+    const type = res.headers.get("content-type") || "";
+    const data = type.includes("json") ? await res.json().catch(() => null) : null;
+    return { status: res.status, data, type };
   };
 }
 
@@ -130,6 +133,31 @@ async function run() {
   r = await house("GET", `/api/posts?house=${h2.id}`);
   check("the wall filters by house", r.data.posts.length === 1);
 
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new Array(200).fill(7)]);
+  r = await house("POST", "/api/images?w=1600&h=1200", jpeg);
+  const picture = r.data;
+  check("a house uploads a picture", r.status === 200 && picture.width === 1600 && picture.height === 1200);
+  r = await house("POST", "/api/images", new Uint8Array([1, 2, 3, 4]));
+  check("a file that is not a picture is refused", r.status === 400);
+  r = await admin("POST", "/api/posts", { body: "", category: "generelt", images: [picture.id] });
+  check("another house cannot use that picture", r.status === 400);
+  r = await house("POST", "/api/posts", { body: "", category: "generelt" });
+  check("a post without words or pictures is refused", r.status === 400);
+  r = await house("POST", "/api/posts", { body: "", category: "generelt", images: [picture.id] });
+  const picturePost = r.data;
+  check("a post can be just a picture", r.status === 200 && picturePost.images[0]?.id === picture.id);
+  r = await house("POST", "/api/posts", { body: "Igjen", category: "generelt", images: [picture.id] });
+  check("a picture belongs to one post", r.status === 400);
+  r = await admin("GET", `/api/images/${picture.id}`);
+  check("every logged-in house sees the picture", r.status === 200 && r.type === "image/jpeg");
+  r = await stranger("GET", `/api/images/${picture.id}`);
+  check("nobody else does", r.status === 401);
+  r = await admin("GET", "/api/storage");
+  check("the administrator sees the space pictures use", r.data.images === 1 && r.data.bytes === jpeg.length);
+  await admin("DELETE", `/api/posts/${picturePost.id}`);
+  r = await house("GET", `/api/images/${picture.id}`);
+  check("deleting a post deletes its picture", r.status === 404);
+
   r = await house("POST", "/api/posts", { body: "x", category: "hjelp" }, { Origin: "https://evil.example" });
   check("another site cannot post as a house", r.status === 403);
   r = await house("POST", "/api/posts", undefined, { "Content-Type": "text/plain" });
@@ -197,9 +225,13 @@ async function run() {
   r = await stranger("POST", "/api/login", { houseId: h2.id, password: "nyttpassord1" });
   check("ten wrong guesses lock the house for a while", r.status === 429);
 
+  const kept = (await house("POST", "/api/images?w=10&h=10", jpeg)).data;
+  await house("POST", "/api/posts", { body: "Bilde", category: "generelt", images: [kept.id] });
   r = await admin("DELETE", `/api/houses/${h2.id}`);
   r = await admin("GET", "/api/posts");
   check("deleting a house removes its posts", r.data.posts.every((p) => p.houseId !== h2.id));
+  r = await admin("GET", `/api/images/${kept.id}`);
+  check("and their pictures", r.status === 404);
   r = await house("GET", "/api/posts");
   check("and logs it out", r.status === 401);
 }

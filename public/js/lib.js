@@ -18,6 +18,43 @@ export async function api(path, { method = "GET", body } = {}) {
   return data;
 }
 
+// A picture from the phone, shrunk to `maxSide` and saved again as JPEG,
+// which also drops its hidden data (such as where it was taken). Then sent;
+// the answer is { id, width, height }.
+export async function sendImage(file, { maxSide, quality }) {
+  let picture;
+  try {
+    picture = await shrink(file, maxSide, quality);
+  } catch {
+    throw new Error("Kunne ikke lese bildet. Prøv et annet.");
+  }
+  const res = await fetch(`/api/images?w=${picture.width}&h=${picture.height}`, {
+    method: "POST",
+    headers: { "Content-Type": "image/jpeg" },
+    body: picture.blob,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Opplastingen feilet. Prøv igjen.");
+  return data;
+}
+
+async function shrink(file, maxSide, quality) {
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff"; // see-through pictures get a white background
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob"))), "image/jpeg", quality),
+  );
+  return { blob, width: canvas.width, height: canvas.height };
+}
+
 export function navigate(path) {
   if (path !== location.pathname + location.search) history.pushState(null, "", path);
   window.dispatchEvent(new Event("nabolag:naviger"));
@@ -191,6 +228,7 @@ const ICONS = {
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/>',
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
 };
 
 export function Icon({ name, size = 20 }) {
@@ -276,26 +314,65 @@ export function useForm(initial) {
   return [values, setValues, bind];
 }
 
-// A native <dialog>: Esc, the close button and a click outside all close it.
-export function Modal({ title, onClose, children }) {
+// A native <dialog>, open while mounted. Esc, a close button and a click
+// outside all close it, unless `mayClose()` says no (say, a half-written post).
+function useDialog(onClose, mayClose) {
   const ref = useRef();
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+  const latest = useRef();
+  latest.current = { onClose, mayClose };
+  const close = () => (!latest.current.mayClose || latest.current.mayClose()) && ref.current.close();
   useEffect(() => {
     const dialog = ref.current;
     dialog.showModal();
-    const handle = () => closeRef.current();
-    dialog.addEventListener("close", handle);
-    return () => dialog.removeEventListener("close", handle);
+    const closed = () => latest.current.onClose();
+    const escape = (e) => latest.current.mayClose && !latest.current.mayClose() && e.preventDefault();
+    dialog.addEventListener("close", closed);
+    dialog.addEventListener("cancel", escape);
+    return () => {
+      dialog.removeEventListener("close", closed);
+      dialog.removeEventListener("cancel", escape);
+    };
   }, []);
-  return html`<dialog ref=${ref} class="modal" onClick=${(e) => e.target === ref.current && ref.current.close()}>
+  const outside = (e) => e.target === ref.current && close();
+  return [ref, close, outside];
+}
+
+export function Modal({ title, onClose, mayClose, children }) {
+  const [ref, close, outside] = useDialog(onClose, mayClose);
+  return html`<dialog ref=${ref} class="modal" onClick=${outside}>
     <div class="modal-inner">
       <div class="modal-head">
         <h2>${title}</h2>
-        <button type="button" class="icon-btn" aria-label="Lukk" onClick=${() => ref.current.close()}><${Icon} name="x" /></button>
+        <button type="button" class="icon-btn" aria-label="Lukk" onClick=${close}><${Icon} name="x" /></button>
       </div>
       <div class="modal-body">${children}</div>
     </div>
+  </dialog>`;
+}
+
+// Pictures full screen: arrows, arrow keys or a swipe to move between them.
+export function ImageViewer({ images, start = 0, onClose }) {
+  const [ref, close, outside] = useDialog(onClose);
+  const [index, setIndex] = useState(start);
+  const count = images.length;
+  const go = (step) => setIndex((i) => (i + step + count) % count);
+  const swipe = useRef(0);
+  const keys = (e) => {
+    if (e.key === "ArrowLeft") go(-1);
+    if (e.key === "ArrowRight") go(1);
+  };
+  return html`<dialog ref=${ref} class="viewer" onClick=${outside} onKeyDown=${keys}
+      onTouchStart=${(e) => (swipe.current = e.touches[0].clientX)}
+      onTouchEnd=${(e) => {
+        const dx = e.changedTouches[0].clientX - swipe.current;
+        if (count > 1 && Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
+      }}>
+    <img src=${`/api/images/${images[index].id}`} alt=${count > 1 ? `Bilde ${index + 1} av ${count}` : "Bilde"} />
+    <button type="button" class="icon-btn viewer-close" aria-label="Lukk" onClick=${close}><${Icon} name="x" /></button>
+    ${count > 1 && html`
+      <button type="button" class="icon-btn viewer-prev" aria-label="Forrige bilde" onClick=${() => go(-1)}><${Icon} name="left" /></button>
+      <button type="button" class="icon-btn viewer-next" aria-label="Neste bilde" onClick=${() => go(1)}><${Icon} name="right" /></button>
+      <span class="viewer-count">${index + 1} / ${count}</span>`}
   </dialog>`;
 }
 
