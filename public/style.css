@@ -4,12 +4,13 @@
 
 :root {
   --accent: #0b7a83;
-  --bg: #f6f3ee;
+  --bg: #f2eee7;
   --surface: #ffffff;
-  --surface-2: #f1ede6;
+  --surface-2: #f3efe8;
   --text: #1c2630;
   --muted: #5f6b77;
-  --border: #e6e0d6;
+  --border: #e8e2d8;
+  --border-strong: #d6cec0;
   --danger: #c0392b;
   --ok: #2e7d4f;
   --warn: #b7791f;
@@ -25,17 +26,18 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #12171c;
-    --surface: #1a2128;
-    --surface-2: #222b33;
-    --text: #e7ecf0;
-    --muted: #9ba8b4;
-    --border: #2b353f;
+    --bg: #0b0f13;
+    --surface: #18212a;
+    --surface-2: #222c37;
+    --text: #e9eef2;
+    --muted: #9eabb7;
+    --border: rgb(255 255 255 / 0.06);
+    --border-strong: rgb(255 255 255 / 0.16);
     --danger: #f07062;
     --ok: #5cc28a;
     --warn: #e0a84a;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 20px rgb(0 0 0 / 0.25);
-    --accent-soft: color-mix(in oklab, var(--accent) 22%, var(--surface));
+    --shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 8px 24px rgb(0 0 0 / 0.4);
+    --accent-soft: color-mix(in oklab, var(--accent) 26%, var(--surface));
     --accent-ink: color-mix(in oklab, var(--accent) 55%, white);
     color-scheme: dark;
   }
@@ -164,7 +166,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 
 .search {
   display: flex; align-items: center; gap: 8px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; border: 1.5px solid var(--border-strong); border-radius: 999px;
   padding: 0 16px; min-height: 46px; color: var(--muted);
 }
 .search:focus-within { border-color: var(--accent); }
@@ -176,14 +178,14 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   --c: var(--accent);
   display: inline-flex; align-items: center; gap: 4px; flex: none;
   min-height: 38px; padding: 0 14px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border: 1.5px solid var(--border-strong); background: transparent; color: var(--text);
   font-size: 0.92rem; font-weight: 500; cursor: pointer; white-space: nowrap;
 }
 .chip:hover { border-color: color-mix(in oklab, var(--c) 45%, var(--border)); }
 .chip.on {
-  background: color-mix(in oklab, var(--c) 16%, var(--surface));
-  border-color: color-mix(in oklab, var(--c) 55%, var(--surface));
-  color: color-mix(in oklab, var(--c) 70%, var(--text));
+  background: color-mix(in oklab, var(--c) 88%, black);
+  border-color: transparent;
+  color: #fff;
   font-weight: 650;
 }
 .chip .count { opacity: 0.7; }
@@ -324,18 +326,30 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 
 /* ---------------------------------------------------------------- wall */
 .wall { display: grid; gap: 16px; }
-.wall-side, .wall-main { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.wall-side, .wall-main { display: grid; gap: 16px; align-content: start; min-width: 0; }
 @media (min-width: 980px) {
   .wall { grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; }
-  .wall-side { grid-column: 2; grid-row: 1; position: sticky; top: 88px; }
-  .wall-main { grid-column: 1; grid-row: 1; }
+  .hero { grid-column: 1 / -1; }
+  .wall-side { grid-column: 2; grid-row: 2; position: sticky; top: 88px; }
+  .wall-main { grid-column: 1; grid-row: 2; }
 }
-.welcome {
-  background: linear-gradient(135deg, var(--accent-soft), var(--surface) 70%);
-  white-space: pre-line;
+.hero {
+  position: relative; overflow: hidden;
+  border-radius: var(--radius); padding: 24px 22px 30px;
+  color: #fff; box-shadow: var(--shadow);
+  background: linear-gradient(135deg, color-mix(in oklab, var(--accent) 72%, black), var(--accent));
+}
+.hero h1 { font-size: 1.5rem; }
+.hero p { margin-top: 6px; max-width: 46em; white-space: pre-line; opacity: 0.92; position: relative; }
+.hero a { color: #fff; }
+.hero::after { /* waves along the bottom */
+  content: ""; position: absolute; inset: auto 0 0 0; height: 36px; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 36'%3E%3Cpath d='M0 14q15-10 30 0t30 0 30 0 30 0M0 28q15-10 30 0t30 0 30 0 30 0' fill='none' stroke='white' stroke-opacity='.16' stroke-width='3'/%3E%3C/svg%3E") repeat-x left bottom / 120px 36px;
 }
 .composer { display: grid; gap: 12px; padding: 14px; }
 .composer-top { display: flex; gap: 12px; align-items: flex-start; }
+.composer .input { background: var(--surface-2); border-color: transparent; }
+.composer .input:focus { background: var(--surface); border-color: var(--accent); }
 .composer-top textarea { min-height: 46px; border-radius: 22px; resize: none; }
 .composer.open .composer-top textarea { border-radius: var(--radius-sm); resize: vertical; }
 .composer-row { display: grid; gap: 6px; }
@@ -343,8 +357,8 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .composer-foot .input { flex: 1 1 180px; width: auto; }
 .composer-foot .spacer { display: none; }
 
-.post { display: grid; gap: 12px; }
-.post.pinned { border-color: color-mix(in oklab, var(--accent) 45%, var(--border)); }
+.post { display: grid; gap: 12px; padding: 20px; }
+.post.pinned { background: color-mix(in oklab, var(--accent) 7%, var(--surface)); border-color: color-mix(in oklab, var(--accent) 45%, var(--border)); }
 .post-head { display: flex; gap: 12px; align-items: flex-start; }
 .who { flex: 1; min-width: 0; }
 .meta { color: var(--muted); font-size: 0.85rem; }
@@ -352,13 +366,17 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .post-body { white-space: pre-line; overflow-wrap: anywhere; font-size: 1.02rem; }
 .post-body.folded { display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
 .post-actions { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 -8px -6px; border-top: 1px solid var(--border); padding-top: 6px; }
+/* Quiet until touched, so the posts themselves stand out. */
+.post-actions .btn { color: var(--muted); }
+.post-actions .btn:hover { color: var(--text); }
+.post-actions .btn.danger:hover { color: var(--danger); }
 @media (max-width: 520px) {
   .post-actions .label { display: none; } /* icons only; the buttons keep their names for screen readers */
   .post-head { flex-wrap: wrap; }
   .post-tags { width: 100%; justify-content: flex-start; padding-left: 52px; margin-top: -6px; }
 }
 
-.comments { display: grid; gap: 10px; background: var(--surface-2); margin: 0 -18px -18px; padding: 14px 18px; border-radius: 0 0 var(--radius) var(--radius); }
+.comments { display: grid; gap: 10px; background: var(--surface-2); margin: 0 -20px -20px; padding: 14px 20px; border-radius: 0 0 var(--radius) var(--radius); }
 .comment { display: flex; gap: 8px; align-items: flex-start; }
 .bubble { background: var(--surface); border-radius: 4px 16px 16px 16px; padding: 8px 12px; min-width: 0; flex: 1; }
 .comment-head { font-size: 0.88rem; }
@@ -482,6 +500,13 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .swatch-dot { width: 24px; height: 24px; border-radius: 50%; }
 .swatch:has(input:checked) { border-color: var(--text); box-shadow: inset 0 0 0 1px var(--text); }
 .swatch:has(input:focus-visible) { outline: 3px solid color-mix(in oklab, var(--accent) 55%, transparent); }
+
+@media (prefers-color-scheme: dark) {
+  .avatar { background: color-mix(in oklab, var(--c) 38%, var(--surface)); color: color-mix(in oklab, var(--c) 40%, white); }
+  .badge, .date-chip, .date-block { background: color-mix(in oklab, var(--c) 30%, var(--surface)); color: color-mix(in oklab, var(--c) 45%, white); }
+  .pill { color: color-mix(in oklab, var(--c) 45%, white); }
+  .segmented button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

@@ -85,6 +85,10 @@ function dateInNorway(d) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 }
 
+export function hourInNorway() {
+  return Number(new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+}
+
 // Calendar dates are handled as UTC midnights so no time zone can shift them.
 export const parseDay = (s) => new Date(`${s}T00:00:00Z`);
 export const dayISO = (d) => d.toISOString().slice(0, 10);
