@@ -34,6 +34,7 @@ browser ── /, /kalender, /naboer ... ──► public/          (pages, serv
 | Infrastructure: Worker name, database, routing | `wrangler.jsonc` | developer |
 | Who may do what (every API call and its access level) | `ROUTES` at the top of `src/worker.js` | developer |
 | The look | `public/style.css` (colour tokens at the top) | developer |
+| The app icons (after adding or changing a colour theme) | `npm run icons` redraws `public/icons/` | developer |
 | A page | `public/js/pages/<page>.js` | developer |
 | The database schema | add `migrations/0002_<name>.sql` (never edit 0001) | developer |
 
@@ -74,6 +75,20 @@ Optional: a nicer address. In the Cloudflare dashboard, Workers → this Worker
 - **Handing over:** Admin → the pencil on the new administrator's house →
   tick "Administrator". Then remove your own tick if you like. The portal
   always keeps at least one administrator.
+
+## On phones: the portal as an app
+
+The portal can be installed as an app: an icon on the home screen that opens
+it full screen, without the browser's buttons. No app store, no fees, no
+notifications. On phones a small hint on the front page leads to the steps
+on "Mitt hus" (iPhone: Share → "Legg til på Hjem-skjerm"; Android: Chrome's
+⋮ menu → "Installer app"; where the browser offers it, a button does it).
+
+What makes it work: `/api/manifest` (name, colour and icons, from the Admin
+page's settings), the icons in `public/icons/`, and `public/sw.js`, which
+caches nothing and only shows a friendly page when the phone is offline.
+An installed app also redraws itself with fresh data when it is reopened
+after more than five minutes.
 
 ## Updating the code
 

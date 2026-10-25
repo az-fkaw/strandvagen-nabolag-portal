@@ -17,6 +17,7 @@ export default {
 
   // Colour themes the administrator can choose between. `accent` drives
   // buttons, links and highlights; the rest of the palette follows it.
+  // After adding or changing a theme, run `npm run icons` (the app icons).
   themes: [
     { id: "hav", label: "Hav", accent: "#0b7a83" },
     { id: "fjord", label: "Fjord", accent: "#3457d5" },

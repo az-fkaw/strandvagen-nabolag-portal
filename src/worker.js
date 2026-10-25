@@ -16,6 +16,7 @@ const POSTS_PER_PAGE = 20;
 // logged-in house, "admin" = an administrator.
 const ROUTES = [
   ["GET", "/api/config", "alle", getConfig],
+  ["GET", "/api/manifest", "alle", manifest],
   ["POST", "/api/setup", "alle", setup],
   ["POST", "/api/login", "alle", login],
   ["POST", "/api/logout", "alle", logout],
@@ -265,6 +266,30 @@ async function getConfig({ env, me }) {
     out.needsSetup = !(await env.DB.prepare("SELECT 1 FROM houses LIMIT 1").first());
   }
   return out;
+}
+
+// What a phone needs to install the portal as an app (an icon on the home
+// screen). It follows the name and colour theme set on the Admin page; the
+// icons are drawn by `npm run icons`.
+async function manifest({ env }) {
+  const settings = await readSettings(env);
+  const theme = config.themes.find((t) => t.id === settings.theme) || config.themes[0];
+  const icon = (size, purpose) => ({ src: `/icons/${theme.id}-${size}.png`, sizes: `${size}x${size}`, type: "image/png", purpose });
+  const body = {
+    name: settings.name,
+    short_name: settings.name,
+    description: settings.tagline,
+    lang: "nb",
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    background_color: "#f2eee7", // --bg in public/style.css
+    theme_color: theme.accent,
+    icons: [icon(192, "any"), icon(512, "any"), icon(192, "maskable"), icon(512, "maskable")],
+  };
+  return new Response(JSON.stringify(body), {
+    headers: { "Content-Type": "application/manifest+json; charset=utf-8", "Cache-Control": "no-cache" },
+  });
 }
 
 // The very first visit creates the administrator's house. It works only

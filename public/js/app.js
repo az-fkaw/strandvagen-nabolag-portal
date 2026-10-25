@@ -10,6 +10,9 @@ import { MyHousePage } from "./pages/myhouse.js";
 import { AdminPage } from "./pages/admin.js";
 import { InvitePage, LoggedInInvite, LoginPage, SetupPage } from "./pages/login.js";
 
+// Lets phones install the portal as an app; it caches nothing (public/sw.js).
+navigator.serviceWorker?.register("/sw.js").catch(() => {});
+
 // The menu, in order. `admin` pages show only to administrators.
 const PAGES = [
   { path: "/", label: "Oppslag", icon: "chat", component: WallPage },
@@ -45,8 +48,37 @@ function usePath() {
 
 function applyTheme(cfg) {
   const theme = cfg.themes.find((t) => t.id === cfg.theme) || cfg.themes[0];
+  const head = (selector, attribute, value) => document.querySelector(selector)?.setAttribute(attribute, value);
   document.documentElement.style.setProperty("--accent", theme.accent);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme.accent);
+  head('meta[name="theme-color"]', "content", theme.accent);
+  head('meta[name="apple-mobile-web-app-title"]', "content", cfg.name);
+  head('link[rel="icon"]', "href", `/icons/${theme.id}-192.png`);
+  head('link[rel="apple-touch-icon"]', "href", `/icons/${theme.id}-180.png`);
+}
+
+// An installed app has no reload button and can sit in the background for
+// days: coming back after a while redraws the page with fresh data, unless
+// something is half-written or a dialog is open.
+const STALE_MS = 5 * 60_000;
+const midEdit = () =>
+  document.querySelector("dialog[open]") ||
+  [...document.querySelectorAll("textarea, input:not([type]), input[type=text]")].some((el) => el.value.trim());
+
+function useFreshOnReturn(reload) {
+  const [round, setRound] = useState(0);
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onChange = () => {
+      if (document.hidden) hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > STALE_MS && !midEdit()) {
+        reload();
+        setRound((n) => n + 1);
+      }
+    };
+    document.addEventListener("visibilitychange", onChange);
+    return () => document.removeEventListener("visibilitychange", onChange);
+  }, []);
+  return round;
 }
 
 function App() {
@@ -68,6 +100,7 @@ function App() {
     addEventListener("nabolag:logget-ut", reload);
     return () => removeEventListener("nabolag:logget-ut", reload);
   }, []);
+  const round = useFreshOnReturn(reload);
 
   if (error)
     return html`<div class="boot">
@@ -108,7 +141,7 @@ function App() {
       ${invite
         ? html`<${LoggedInInvite} cfg=${cfg} onDone=${reload} />`
         : page
-          ? html`<${page.component} key=${page.path} cfg=${cfg} reload=${reload} />`
+          ? html`<${page.component} key=${`${page.path}:${round}`} cfg=${cfg} reload=${reload} />`
           : html`<div class="empty">
               <div class="empty-icon">🧭</div>
               <h3>Denne siden finnes ikke</h3>

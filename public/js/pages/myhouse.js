@@ -1,7 +1,8 @@
-// The house's own page: its profile for the neighbours, the password,
-// this device's name on posts, and logging out.
+// The house's own page: getting the app, its profile for the neighbours,
+// the password, this device's name on posts, and logging out.
 import { html, useEffect, useState } from "../vendor/preact-htm.js";
 import { Avatar, Field, Icon, Loading, PasswordInput, api, byId, recall, remember, showError, toast, useForm } from "../lib.js";
+import { AppCard } from "../install.js";
 
 export function MyHousePage({ cfg, reload }) {
   const [house, setHouse] = useState(null);
@@ -24,6 +25,7 @@ export function MyHousePage({ cfg, reload }) {
         <span class="muted">${cfg.me.isAdmin ? "Administrator for portalen" : "Ditt hus"}</span>
       </div>
     </div>
+    <${AppCard} cfg=${cfg} />
     <${Profile} house=${house} />
     <${DeviceName} />
     <${Password} />
