@@ -1,9 +1,9 @@
-// The front page: a greeting, the wall of posts, and the next activities.
-import { html, useEffect, useState } from "../vendor/preact-htm.js";
+// The front page: a greeting, then the board of posts.
+import { html, useEffect, useRef, useState } from "../vendor/preact-htm.js";
 import {
-  Avatar, Badge, Chips, Empty, Icon, Loading, SearchBox,
-  api, byId, eventLastDay, eventWhen, formatDay, fullTime, hourInNorway, linkify, recall, remember,
-  showError, timeAgo, toast, todayISO, useDebounced,
+  Avatar, Badge, Chips, Empty, Field, Icon, ImageViewer, Loading, Modal, SearchBox,
+  api, byId, fullTime, hourInNorway, linkify, recall, remember, sendImage, showError, timeAgo, toast,
+  useDebounced,
 } from "../lib.js";
 import { AppTip } from "../install.js";
 
@@ -17,6 +17,7 @@ export function WallPage({ cfg }) {
   const q = useDebounced(query.trim());
   const [posts, setPosts] = useState(null);
   const [more, setMore] = useState(false);
+  const [writing, setWriting] = useState(false);
 
   const load = (offset = 0) => {
     const params = new URLSearchParams({ offset });
@@ -36,44 +37,46 @@ export function WallPage({ cfg }) {
   const replace = (post) => setPosts((ps) => ps.map((p) => (p.id === post.id ? post : p)));
   const remove = (id) => setPosts((ps) => ps.filter((p) => p.id !== id));
   const filtered = category || house || q;
+  const posted = (post) => {
+    setWriting(false);
+    if (filtered) {
+      setCategory("");
+      setHouse(null);
+      setQuery("");
+    } else setPosts((ps) => [...ps.filter((x) => x.pinned), post, ...ps.filter((x) => !x.pinned)]);
+  };
 
   return html`<div class="wall">
     <${Hero} cfg=${cfg} />
-    <aside class="wall-side">
-      <${AppTip} />
-      <${NextEvents} cfg=${cfg} />
-    </aside>
+    <${AppTip} />
 
-    <section class="wall-main">
-      <${Composer} cfg=${cfg} onPosted=${(p) => {
-        if (filtered) {
-          setCategory("");
-          setHouse(null);
-          setQuery("");
-        } else setPosts((ps) => [...ps.filter((x) => x.pinned), p, ...ps.filter((x) => !x.pinned)]);
-      }} />
+    <div class="section-head">
+      <h2>Oppslagstavla</h2>
+      <button class="btn primary" onClick=${() => setWriting(true)}><${Icon} name="plus" size=${18} /> Nytt innlegg</button>
+    </div>
 
-      <div class="filters">
-        <${SearchBox} value=${query} onInput=${setQuery} placeholder="Søk i innleggene …" />
-        <${Chips} label="Kategori" value=${category} onChange=${setCategory}
-          options=${[{ id: "", label: "Alle" }, ...cfg.postCategories]} />
-        ${house && html`<div class="chips">
-          <button class="chip on" onClick=${() => setHouse(null)}>Bare ${house.name} <${Icon} name="x" size=${14} /></button>
-        </div>`}
-      </div>
+    <div class="filters">
+      <${SearchBox} value=${query} onInput=${setQuery} placeholder="Søk i innleggene …" />
+      <${Chips} label="Kategori" value=${category} onChange=${setCategory}
+        options=${[{ id: "", label: "Alle" }, ...cfg.postCategories]} />
+      ${house && html`<div class="chips">
+        <button class="chip on" onClick=${() => setHouse(null)}>Bare ${house.name} <${Icon} name="x" size=${14} /></button>
+      </div>`}
+    </div>
 
-      ${posts === null
-        ? html`<${Loading} />`
-        : posts.length === 0
-          ? filtered
-            ? html`<${Empty} icon="🔍" title="Ingen innlegg passer">Prøv et annet søk eller en annen kategori.<//>`
-            : html`<${Empty} icon="👋" title="Ingen innlegg ennå">Bli den første som skriver noe til naboene!<//>`
-          : posts.map(
-              (p) => html`<${PostCard} key=${p.id} post=${p} cfg=${cfg}
-                onChange=${replace} onDelete=${remove} onHouse=${(h) => setHouse(h)} />`,
-            )}
-      ${more && html`<button class="btn block" onClick=${() => load(posts.length)}>Vis flere innlegg</button>`}
-    </section>
+    ${posts === null
+      ? html`<${Loading} />`
+      : posts.length === 0
+        ? filtered
+          ? html`<${Empty} icon="🔍" title="Ingen innlegg passer">Prøv et annet søk eller en annen kategori.<//>`
+          : html`<${Empty} icon="👋" title="Ingen innlegg ennå">Bli den første som skriver noe til naboene!<//>`
+        : posts.map(
+            (p) => html`<${PostCard} key=${p.id} post=${p} cfg=${cfg}
+              onChange=${replace} onDelete=${remove} onHouse=${(h) => setHouse(h)} />`,
+          )}
+    ${more && html`<button class="btn block" onClick=${() => load(posts.length)}>Vis flere innlegg</button>`}
+
+    ${writing && html`<${Composer} cfg=${cfg} onClose=${() => setWriting(false)} onPosted=${posted} />`}
   </div>`;
 }
 
@@ -89,49 +92,107 @@ function Hero({ cfg }) {
   </header>`;
 }
 
-function Composer({ cfg, onPosted }) {
+// "Nytt innlegg": words, pictures (sent while the writer goes on writing),
+// a category and an optional name.
+function Composer({ cfg, onClose, onPosted }) {
   const [body, setBody] = useState("");
   const [category, setCategory] = useState(cfg.postCategories[0].id);
   const [author, setAuthor] = useState(recall(NAME_KEY));
-  const [open, setOpen] = useState(false);
+  const [pictures, setPictures] = useState([]); // { key, preview, id once sent }
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const previews = useRef([]);
+  useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
+  const max = cfg.images.maxPerPost;
+  const sending = pictures.some((p) => !p.id);
+  const empty = !body.trim() && !pictures.length;
+
+  const add = (files) => {
+    const room = max - pictures.length;
+    if (files.length > room) toast(`Et innlegg kan ha høyst ${max} bilder.`, "error");
+    for (const file of [...files].slice(0, room)) {
+      const key = Math.random();
+      const preview = URL.createObjectURL(file);
+      previews.current.push(preview);
+      setPictures((ps) => [...ps, { key, preview }]);
+      sendImage(file, cfg.images).then(
+        (image) => setPictures((ps) => ps.map((p) => (p.key === key ? { ...p, id: image.id } : p))),
+        (err) => {
+          setPictures((ps) => ps.filter((p) => p.key !== key));
+          showError(err);
+        },
+      );
+    }
+  };
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
+    setError("");
     try {
-      const post = await api("/api/posts", { method: "POST", body: { body, category, author } });
+      const post = await api("/api/posts", {
+        method: "POST",
+        body: { body, category, author, images: pictures.map((p) => p.id) },
+      });
       remember(NAME_KEY, author.trim());
-      onPosted(post);
-      setBody("");
-      setOpen(false);
       toast("Innlegget er publisert");
+      onPosted(post);
     } catch (err) {
-      showError(err);
+      setError(err.message);
+      setBusy(false);
     }
-    setBusy(false);
   };
 
-  return html`<form class=${`card composer${open ? " open" : ""}`} onSubmit=${submit}>
-    <div class="composer-top">
-      <${Avatar} name=${cfg.me.name} id=${cfg.me.id} />
-      <textarea class="input" rows=${open ? 4 : 1} maxlength="5000" value=${body}
-        placeholder="Hva vil du dele med naboene?" aria-label="Nytt innlegg"
-        onFocus=${() => setOpen(true)} onInput=${(e) => setBody(e.currentTarget.value)}></textarea>
-    </div>
-    ${open && html`
-      <div class="composer-row">
+  return html`<${Modal} title="Nytt innlegg" onClose=${onClose}
+      mayClose=${() => empty || busy || confirm("Forkaste innlegget du har begynt på?")}>
+    <form class="stack" onSubmit=${submit}>
+      <textarea class="input" rows="5" maxlength="5000" value=${body} autofocus
+        placeholder="Hva vil du dele med naboene?" aria-label="Innlegget"
+        onInput=${(e) => setBody(e.currentTarget.value)}></textarea>
+
+      <div class="pictures">
+        ${pictures.map(
+          (p) => html`<div class="picture" key=${p.key}>
+            <img src=${p.preview} alt="" />
+            ${!p.id && html`<span class="picture-wait"><span class="spinner"></span></span>`}
+            <button type="button" class="picture-remove" aria-label="Fjern bildet"
+              onClick=${() => setPictures((ps) => ps.filter((x) => x.key !== p.key))}><${Icon} name="x" size=${14} /></button>
+          </div>`,
+        )}
+        ${pictures.length < max && html`<label class="picture-add">
+          <input type="file" accept="image/*" multiple class="visually-hidden"
+            onChange=${(e) => { add(e.currentTarget.files); e.currentTarget.value = ""; }} />
+          <${Icon} name="image" size=${22} /><span>Legg til bilde</span>
+        </label>`}
+      </div>
+
+      <div class="field">
         <span class="field-label">Kategori</span>
         <${Chips} label="Kategori" value=${category} onChange=${setCategory} options=${cfg.postCategories} />
       </div>
-      <div class="composer-foot">
-        <input class="input" maxlength="60" value=${author} placeholder="Ditt navn (valgfritt)"
-          aria-label="Ditt navn" onInput=${(e) => setAuthor(e.currentTarget.value)} />
-        <span class="spacer"></span>
-        <button type="button" class="btn ghost" onClick=${() => { setOpen(false); setBody(""); }}>Avbryt</button>
-        <button class="btn primary" disabled=${busy || !body.trim()}>Publiser</button>
-      </div>`}
-  </form>`;
+      <${Field} label="Ditt navn (valgfritt)" hint="Huskes på denne enheten.">
+        <input class="input" maxlength="60" value=${author} onInput=${(e) => setAuthor(e.currentTarget.value)} />
+      <//>
+      ${error && html`<p class="form-error" role="alert">${error}</p>`}
+      <div class="row end">
+        <button type="button" class="btn ghost" onClick=${() => (empty || confirm("Forkaste innlegget du har begynt på?")) && onClose()}>Avbryt</button>
+        <button class="btn primary" disabled=${busy || sending || empty}>${sending ? "Sender bilder …" : "Publiser"}</button>
+      </div>
+    </form>
+  <//>`;
+}
+
+function PostImages({ images }) {
+  const [open, setOpen] = useState(null);
+  return html`<div class=${`post-images n${images.length}`}>
+      ${images.map(
+        (im, i) => html`<button type="button" class="post-image" key=${im.id} onClick=${() => setOpen(i)}
+          aria-label=${images.length > 1 ? `Vis bilde ${i + 1} av ${images.length} større` : "Vis bildet større"}>
+          <img src=${`/api/images/${im.id}`} width=${im.width} height=${im.height} loading="lazy" decoding="async" alt="" />
+        </button>`,
+      )}
+    </div>
+    ${open !== null && html`<${ImageViewer} images=${images} start=${open} onClose=${() => setOpen(null)} />`}`;
 }
 
 // Long posts fold after this many characters or lines.
@@ -182,10 +243,11 @@ function PostCard({ post, cfg, onChange, onDelete, onHouse }) {
 
     ${editing
       ? html`<${PostEditor} cfg=${cfg} post=${post} onDone=${(p) => { if (p) onChange(p); setEditing(false); }} />`
-      : html`<div class=${`post-body${long && !unfolded ? " folded" : ""}`}>${linkify(post.body)}</div>
+      : post.body && html`<div class=${`post-body${long && !unfolded ? " folded" : ""}`}>${linkify(post.body)}</div>
           ${long && html`<button type="button" class="link-btn" onClick=${() => setUnfolded(!unfolded)}>
             ${unfolded ? "Vis mindre" : "Les mer"}
           </button>`}`}
+    ${post.images.length > 0 && html`<${PostImages} images=${post.images} />`}
 
     <footer class="post-actions">
       <button type="button" class="btn ghost sm" onClick=${() => setReplying(true)}>
@@ -229,7 +291,7 @@ function PostEditor({ cfg, post, onDone }) {
     <${Chips} label="Kategori" value=${category} onChange=${setCategory} options=${cfg.postCategories} />
     <div class="row end">
       <button type="button" class="btn ghost" onClick=${() => onDone(null)}>Avbryt</button>
-      <button class="btn primary" disabled=${busy || !body.trim()}>Lagre</button>
+      <button class="btn primary" disabled=${busy || (!body.trim() && !post.images.length)}>Lagre</button>
     </div>
   </form>`;
 }
@@ -289,39 +351,5 @@ function Comments({ post, cfg, onChange, focus }) {
         <${Icon} name="send" size=${18} />
       </button>
     </form>
-  </div>`;
-}
-
-// The next few activities, so the front page shows what is coming.
-function NextEvents({ cfg }) {
-  const [events, setEvents] = useState(null);
-  useEffect(() => {
-    api("/api/events").then((r) => {
-      const today = todayISO();
-      setEvents(r.events.filter((e) => eventLastDay(e) >= today).slice(0, 3));
-    }, () => setEvents([]));
-  }, []);
-  if (events === null) return null;
-
-  return html`<div class="card next-events">
-    <div class="card-title">
-      <h2>Neste aktiviteter</h2>
-      <a href="/kalender" class="small">Hele kalenderen</a>
-    </div>
-    ${events.length === 0
-      ? html`<p class="muted small">Ingenting planlagt ennå. <a href="/kalender">Legg til en aktivitet</a>.</p>`
-      : events.map((e) => {
-          const cat = byId(cfg.eventCategories, e.category);
-          return html`<a href=${`/kalender?aktivitet=${e.id}`} class="mini-event" key=${e.id}>
-            <span class="date-chip" style=${{ "--c": cat?.color }}>
-              <span>${formatDay(e.startDate, { month: "short" }).replace(".", "")}</span>
-              <strong>${Number(e.startDate.slice(8))}</strong>
-            </span>
-            <span>
-              <strong>${cat?.icon} ${e.title}</strong>
-              <span class="muted small block">${eventWhen(e)}</span>
-            </span>
-          </a>`;
-        })}
   </div>`;
 }

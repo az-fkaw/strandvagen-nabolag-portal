@@ -31,6 +31,9 @@ const ROUTES = [
   ["PUT", "/api/posts/:id/pin", "admin", pinPost],
   ["POST", "/api/posts/:id/comments", "hus", createComment],
   ["DELETE", "/api/comments/:id", "hus", deleteComment],
+  ["POST", "/api/images", "hus", uploadImage],
+  ["GET", "/api/images/:id", "hus", getImage],
+  ["GET", "/api/storage", "admin", storage],
 
   ["GET", "/api/events", "hus", listEvents],
   ["POST", "/api/events", "hus", createEvent],
@@ -94,7 +97,8 @@ async function route(request, env, url) {
     if (r.access === "admin" && !me.is_admin)
       throw new HttpError(403, "Bare administratoren kan gjøre dette.");
 
-    const body = ["POST", "PUT"].includes(request.method) ? await readJson(request) : {};
+    const sentJson = (request.headers.get("Content-Type") || "").includes("application/json");
+    const body = sentJson && ["POST", "PUT"].includes(request.method) ? await readJson(request) : {};
     const result = await r.handler({ request, env, url, me, body, params: match.groups || {} });
     return result instanceof Response ? result : json(result ?? { ok: true });
   }
@@ -103,12 +107,14 @@ async function route(request, env, url) {
     : new HttpError(404, "Fant ikke det du lette etter.");
 }
 
-// A form on another site cannot send JSON, and a browser always says where
-// a request comes from: together they stop other sites acting as a house.
+// A form on another site cannot send JSON or a bare picture, and a browser
+// always says where a request comes from: together they stop other sites
+// acting as a house.
 function checkSameOrigin(request, url) {
   const origin = request.headers.get("Origin");
   if (origin && origin !== url.origin) throw new HttpError(403, "Forespørselen kom fra en annen side.");
-  if (!(request.headers.get("Content-Type") || "").includes("application/json"))
+  const type = request.headers.get("Content-Type") || "";
+  if (!type.includes("application/json") && type !== "image/jpeg")
     throw new HttpError(415, "Forespørselen må være JSON.");
 }
 
@@ -258,6 +264,7 @@ async function getConfig({ env, me }) {
     out.welcome = settings.welcome;
     out.postCategories = config.postCategories;
     out.eventCategories = config.eventCategories;
+    out.images = { maxPerPost: config.images.maxPerPost, maxSide: config.images.maxSide, quality: config.images.quality };
   } else {
     const { results } = await env.DB.prepare(
       "SELECT id, name FROM houses WHERE password_hash IS NOT NULL",
@@ -422,17 +429,23 @@ async function listPosts({ env, url }) {
     .bind(...args, POSTS_PER_PAGE + 1, offset)
     .all();
   const posts = results.slice(0, POSTS_PER_PAGE);
-  return { posts: await withComments(env, posts), more: results.length > POSTS_PER_PAGE };
+  return { posts: await withDetails(env, posts), more: results.length > POSTS_PER_PAGE };
 }
 
-async function withComments(env, posts) {
+// Posts as the pages want them: with their comments and pictures.
+async function withDetails(env, posts) {
   if (!posts.length) return [];
-  const { results } = await env.DB.prepare(
-    `SELECT c.*, h.name AS house_name FROM comments c JOIN houses h ON h.id = c.house_id
-     WHERE c.post_id IN (${posts.map(() => "?").join(",")}) ORDER BY c.id`,
-  )
-    .bind(...posts.map((p) => p.id))
-    .all();
+  const marks = posts.map(() => "?").join(",");
+  const ids = posts.map((p) => p.id);
+  const [{ results }, { results: images }] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT c.*, h.name AS house_name FROM comments c JOIN houses h ON h.id = c.house_id
+       WHERE c.post_id IN (${marks}) ORDER BY c.id`,
+    ).bind(...ids),
+    env.DB.prepare(
+      `SELECT id, post_id, width, height FROM images WHERE post_id IN (${marks}) ORDER BY position`,
+    ).bind(...ids),
+  ]);
   return posts.map((p) => ({
     id: p.id,
     houseId: p.house_id,
@@ -443,6 +456,7 @@ async function withComments(env, posts) {
     pinned: !!p.pinned,
     createdAt: p.created_at,
     editedAt: p.edited_at,
+    images: images.filter((i) => i.post_id === p.id).map((i) => ({ id: i.id, width: i.width, height: i.height })),
     comments: results
       .filter((c) => c.post_id === p.id)
       .map((c) => ({
@@ -459,29 +473,48 @@ async function withComments(env, posts) {
 async function onePost(env, id) {
   const row = await env.DB.prepare(`${POST_SELECT} WHERE p.id = ?`).bind(id).first();
   if (!row) throw new HttpError(404, "Fant ikke innlegget. Kanskje noen har slettet det?");
-  return (await withComments(env, [row]))[0];
+  return (await withDetails(env, [row]))[0];
 }
 
-function postFields(body) {
+// A post needs words unless it has pictures.
+function postFields(body, hasImages) {
   return {
-    body: text(body.body, "Innlegget", { required: true, max: 5000 }),
+    body: text(body.body, "Innlegget", { required: !hasImages, max: 5000 }),
     category: categoryId(body.category, config.postCategories),
     author: text(body.author, "Navnet", { max: 60 }),
   };
 }
 
 async function createPost({ env, me, body }) {
-  const f = postFields(body);
+  const imageIds = imageList(body.images);
+  const f = postFields(body, imageIds.length > 0);
+  if (imageIds.length) {
+    const ready = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM images WHERE house_id = ? AND post_id IS NULL AND id IN (${imageIds.map(() => "?").join(",")})`,
+    )
+      .bind(me.id, ...imageIds)
+      .first();
+    if (ready.n !== imageIds.length)
+      throw new HttpError(400, "Et av bildene er ikke lenger tilgjengelig. Fjern det og last det opp på nytt.");
+  }
   const res = await env.DB.prepare("INSERT INTO posts (house_id, author, category, body) VALUES (?, ?, ?, ?)")
     .bind(me.id, f.author, f.category, f.body)
     .run();
-  return onePost(env, res.meta.last_row_id);
+  const postId = res.meta.last_row_id;
+  if (imageIds.length)
+    await env.DB.batch(
+      imageIds.map((imageId, i) =>
+        env.DB.prepare("UPDATE images SET post_id = ?, position = ? WHERE id = ?").bind(postId, i, imageId),
+      ),
+    );
+  return onePost(env, postId);
 }
 
 async function updatePost({ env, me, body, params }) {
   const id = idParam(params);
   mustOwn(me, await env.DB.prepare("SELECT house_id FROM posts WHERE id = ?").bind(id).first(), "innlegget");
-  const f = postFields(body);
+  const pictures = await env.DB.prepare("SELECT COUNT(*) AS n FROM images WHERE post_id = ?").bind(id).first();
+  const f = postFields(body, pictures.n > 0);
   await env.DB.prepare("UPDATE posts SET body = ?, category = ?, author = ?, edited_at = ? WHERE id = ?")
     .bind(f.body, f.category, f.author, now(), id)
     .run();
@@ -491,6 +524,7 @@ async function updatePost({ env, me, body, params }) {
 async function deletePost({ env, me, params }) {
   const id = idParam(params);
   mustOwn(me, await env.DB.prepare("SELECT house_id FROM posts WHERE id = ?").bind(id).first(), "innlegget");
+  await removeImages(env, "post_id = ?", id);
   await env.DB.prepare("DELETE FROM posts WHERE id = ?").bind(id).run();
 }
 
@@ -514,6 +548,69 @@ async function deleteComment({ env, me, params }) {
   mustOwn(me, row, "kommentaren");
   await env.DB.prepare("DELETE FROM comments WHERE id = ?").bind(idParam(params)).run();
   return onePost(env, row.post_id);
+}
+
+// -------------------------------------------------------------- pictures
+
+const IMAGE_ID = /^[\w-]{16,40}$/;
+
+function imageList(value) {
+  const ids = [...new Set(Array.isArray(value) ? value : [])];
+  if (ids.length > config.images.maxPerPost)
+    throw new HttpError(400, `Et innlegg kan ha høyst ${config.images.maxPerPost} bilder.`);
+  if (!ids.every((id) => typeof id === "string" && IMAGE_ID.test(id))) throw new HttpError(400, "Ugyldig bilde.");
+  return ids;
+}
+
+// The page sends the picture already shrunk, as JPEG, with its size in the
+// address (?w=&h=, used only to lay the page out before it loads).
+async function uploadImage({ request, env, url, me }) {
+  if (Number(request.headers.get("Content-Length")) > config.images.maxBytes)
+    throw new HttpError(413, "Bildet er for stort.");
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.length > config.images.maxBytes) throw new HttpError(413, "Bildet er for stort.");
+  if (!(bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)) throw new HttpError(400, "Filen er ikke et bilde.");
+  const side = (key) => Math.min(10_000, Math.max(1, Math.round(Number(url.searchParams.get(key))) || 1));
+  const image = { id: randomToken(18), width: side("w"), height: side("h") };
+  await env.IMAGES.put(`${image.id}.jpg`, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+  await env.DB.prepare("INSERT INTO images (id, house_id, width, height, bytes) VALUES (?, ?, ?, ?, ?)")
+    .bind(image.id, me.id, image.width, image.height, bytes.length)
+    .run();
+  // Pictures uploaded but never published (the writer gave up) go after a day.
+  await removeImages(env, "post_id IS NULL AND created_at < ?", new Date(Date.now() - DAY_MS).toISOString());
+  return image;
+}
+
+// Only logged-in houses see pictures. A picture never changes, so the
+// phone may keep it for good.
+async function getImage({ env, params }) {
+  const object = IMAGE_ID.test(params.id) && (await env.IMAGES.get(`${params.id}.jpg`));
+  if (!object) throw new HttpError(404, "Fant ikke bildet.");
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": "image/jpeg",
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+// Deletes the files and rows of the pictures matching `where`. Rows alone
+// would vanish with their post or house; the files would not.
+async function removeImages(env, where, ...args) {
+  const { results } = await env.DB.prepare(`SELECT id FROM images WHERE ${where}`).bind(...args).all();
+  for (let i = 0; i < results.length; i += 100) {
+    const ids = results.slice(i, i + 100).map((r) => r.id);
+    await env.IMAGES.delete(ids.map((id) => `${id}.jpg`));
+    await env.DB.prepare(`DELETE FROM images WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).run();
+  }
+}
+
+async function storage({ env }) {
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM images WHERE post_id IS NOT NULL",
+  ).first();
+  return { images: row.count, bytes: row.bytes, freeBytes: config.images.freeBytes };
 }
 
 // -------------------------------------------------------------- calendar
@@ -712,6 +809,7 @@ async function createInvite({ env, url, params }) {
 async function deleteHouse({ env, me, params }) {
   const id = idParam(params);
   if (id === me.id) throw new HttpError(400, "Du kan ikke slette ditt eget hus.");
+  await removeImages(env, "house_id = ?", id);
   await env.DB.prepare("DELETE FROM houses WHERE id = ?").bind(id).run();
 }
 

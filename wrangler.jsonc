@@ -1,6 +1,7 @@
 // The whole infrastructure, in one file: one Cloudflare Worker that serves
-// the pages in public/ and answers /api/*, plus one D1 (SQLite) database.
-// Free plan: 100,000 requests and 5 million database row reads per day.
+// the pages in public/ and answers /api/*, one D1 (SQLite) database, and one
+// R2 bucket for pictures. Free plan: 100,000 requests and 5 million database
+// row reads per day; 10 GB of pictures.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "strandvagen-nabolag",
@@ -21,6 +22,13 @@
       // First deploy: `npx wrangler d1 create nabolag --location weur`
       // prints a database_id. Paste it here (README, "First time").
       "database_id": "29db03d4-8043-4c3b-b14b-697657c4221d"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "IMAGES",
+      // Create it before the first deploy that needs it (README, "Pictures").
+      "bucket_name": "nabolag-bilder"
     }
   ],
   "observability": { "enabled": true }
