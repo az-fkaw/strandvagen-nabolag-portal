@@ -179,6 +179,12 @@ async function run() {
   r = await admin("PUT", "/api/settings", { name: "Strandvågen Vel", tagline: "", welcome: "Hei!", theme: "skog" });
   r = await house("GET", "/api/config");
   check("settings reach every page", r.data.name === "Strandvågen Vel" && r.data.theme === "skog");
+  r = await stranger("GET", "/api/manifest");
+  check("the app manifest follows the settings", r.data?.name === "Strandvågen Vel" && r.data.icons.every((i) => i.src.startsWith("/icons/skog-")));
+  const icon = await fetch(BASE + r.data.icons[1].src);
+  check("its icons exist", icon.ok && icon.headers.get("content-type") === "image/png");
+  const worker = await fetch(`${BASE}/sw.js`);
+  check("the service worker is served", worker.ok && (worker.headers.get("content-type") || "").includes("javascript"));
 
   r = await house("POST", "/api/password", { current: "feil-passord", password: "nyttpassord1" });
   check("changing the password needs the old one", r.status === 400);

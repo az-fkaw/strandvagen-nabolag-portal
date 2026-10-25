@@ -5,6 +5,7 @@ import {
   api, byId, eventLastDay, eventWhen, formatDay, fullTime, hourInNorway, linkify, recall, remember,
   showError, timeAgo, toast, todayISO, useDebounced,
 } from "../lib.js";
+import { AppTip } from "../install.js";
 
 // The optional "who in the house wrote this", remembered per device.
 const NAME_KEY = "nabolag:navn";
@@ -39,6 +40,7 @@ export function WallPage({ cfg }) {
   return html`<div class="wall">
     <${Hero} cfg=${cfg} />
     <aside class="wall-side">
+      <${AppTip} />
       <${NextEvents} cfg=${cfg} />
     </aside>
 

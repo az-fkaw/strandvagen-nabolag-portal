@@ -486,6 +486,18 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .link-text { display: grid; min-width: 0; }
 .link-text > span { overflow: hidden; text-overflow: ellipsis; }
 
+/* ----------------------------------------------------------------- app */
+.app-icon { width: 52px; height: 52px; border-radius: 13px; flex: none; box-shadow: var(--shadow); }
+.app-card .row { align-items: flex-start; gap: 14px; }
+.steps { margin: 0; padding-left: 1.4em; display: grid; gap: 8px; }
+.key {
+  display: inline-grid; place-items: center; vertical-align: -4px;
+  min-width: 28px; height: 26px; padding: 0 6px; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid var(--border-strong); font-weight: 700;
+}
+.app-tip { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 16px; }
+.app-tip a { flex: 1; font-weight: 600; text-decoration: none; }
+
 /* --------------------------------------------------------------- admin */
 .admin-houses { list-style: none; margin: 0; padding: 0; display: grid; }
 .admin-houses li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }

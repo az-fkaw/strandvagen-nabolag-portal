@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "wrangler d1 migrations apply DB --local && wrangler dev",
     "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
-    "test": "node scripts/smoke.mjs"
+    "test": "node scripts/smoke.mjs",
+    "icons": "node scripts/icons.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.152.0"
