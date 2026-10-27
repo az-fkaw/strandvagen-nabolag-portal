@@ -9,14 +9,16 @@ import { LinksPage } from "./pages/links.js";
 import { MyHousePage } from "./pages/myhouse.js";
 import { AdminPage } from "./pages/admin.js";
 import { InvitePage, LoggedInInvite, LoginPage, SetupPage } from "./pages/login.js";
+import { refreshNews, useNews } from "./news.js";
 
 // Lets phones install the portal as an app; it caches nothing (public/sw.js).
 navigator.serviceWorker?.register("/sw.js").catch(() => {});
 
-// The menu, in order. `admin` pages show only to administrators.
+// The menu, in order. `admin` pages show only to administrators; `news`
+// names the count of new things shown on the menu item (news.js).
 const PAGES = [
-  { path: "/", label: "Oppslag", icon: "chat", component: WallPage },
-  { path: "/kalender", label: "Kalender", icon: "calendar", component: CalendarPage },
+  { path: "/", label: "Oppslag", icon: "chat", component: WallPage, news: "wall" },
+  { path: "/kalender", label: "Kalender", icon: "calendar", component: CalendarPage, news: "calendar" },
   { path: "/naboer", label: "Naboer", icon: "users", component: NeighboursPage },
   { path: "/lenker", label: "Lenker", icon: "link", component: LinksPage },
   { path: "/admin", label: "Admin", icon: "shield", component: AdminPage, admin: true },
@@ -101,6 +103,10 @@ function App() {
     return () => removeEventListener("nabolag:logget-ut", reload);
   }, []);
   const round = useFreshOnReturn(reload);
+  const news = useNews();
+  useEffect(() => {
+    if (cfg?.me) refreshNews();
+  }, [path, round, cfg?.me?.id]);
 
   if (error)
     return html`<div class="boot">
@@ -118,6 +124,10 @@ function App() {
   }
 
   const menu = PAGES.filter((p) => !p.admin || cfg.me.isAdmin);
+  const badge = (p) => {
+    const n = p.news && news[p.news];
+    return n ? html`<span class="nav-badge" aria-label=${`${n} nye`}>${n > 9 ? "9+" : n}</span>` : null;
+  };
   const page = invite ? null : path === MY_HOUSE.path ? MY_HOUSE : menu.find((p) => p.path === path);
   document.title = page ? `${page.label} · ${cfg.name}` : cfg.name;
 
@@ -129,7 +139,7 @@ function App() {
           <span class="brand-text"><strong>${cfg.name}</strong>${cfg.tagline && html`<small>${cfg.tagline}</small>`}</span>
         </a>
         <nav class="topnav" aria-label="Hovedmeny">
-          ${menu.map((p) => html`<a href=${p.path} key=${p.path} aria-current=${p.path === path ? "page" : null}>${p.label}</a>`)}
+          ${menu.map((p) => html`<a href=${p.path} key=${p.path} aria-current=${p.path === path ? "page" : null}>${p.label}${badge(p)}</a>`)}
         </nav>
         <a href="/mitt-hus" class="me" aria-current=${path === MY_HOUSE.path ? "page" : null} title="Mitt hus og innstillinger">
           <${Avatar} name=${cfg.me.name} id=${cfg.me.id} size=${34} />
@@ -151,7 +161,7 @@ function App() {
     <nav class="bottomnav" aria-label="Hovedmeny">
       ${menu.map(
         (p) => html`<a href=${p.path} key=${p.path} aria-current=${p.path === path ? "page" : null}>
-          <${Icon} name=${p.icon} size=${22} /><span>${p.label}</span>
+          <span class="nav-icon"><${Icon} name=${p.icon} size=${22} />${badge(p)}</span><span>${p.label}</span>
         </a>`,
       )}
     </nav>`;

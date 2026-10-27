@@ -180,6 +180,26 @@ async function run() {
   r = await house("GET", "/api/events");
   check("the calendar lists it", r.data.events.length === 1);
 
+  r = await admin("GET", "/api/news");
+  const t0 = r.data.now;
+  check("a device that never looked sees nothing new", r.data.wall === 0 && r.data.calendar === 0 && !!t0);
+  const since = `wall=${t0}&calendar=${t0}`;
+  await house("POST", "/api/posts", { body: "Nytt fra nr. 2", category: "generelt" });
+  const notice = (await admin("GET", "/api/posts?category=beskjed")).data.posts[0];
+  await house("POST", `/api/posts/${notice.id}/comments`, { body: "Vi kommer!" });
+  await house("POST", "/api/events", { title: "Grillkveld", category: "sosialt", startDate: "2027-06-01" });
+  r = await admin("GET", `/api/news?${since}`);
+  check("another house's post, comment and activity are news", r.data.wall === 2 && r.data.calendar === 1, JSON.stringify(r.data));
+  r = await house("GET", `/api/news?${since}`);
+  check("a house's own are not", r.data.wall === 0 && r.data.calendar === 0, JSON.stringify(r.data));
+  r = await admin("GET", `/api/news?wall=${r.data.now}&calendar=${r.data.now}`);
+  check("nothing is new after looking", r.data.wall === 0 && r.data.calendar === 0);
+  r = await admin("GET", "/api/posts");
+  check("a new comment brings a post back up (after pinned ones)", r.data.posts[1]?.id === notice.id && !!r.data.now,
+    r.data.posts.map((p) => p.body.slice(0, 12)).join(" | "));
+  r = await admin("GET", "/api/events");
+  check("activities say when they were added", r.data.events.every((e) => e.createdAt) && !!r.data.now);
+
   r = await house("GET", "/api/links");
   check("the starter links are there", r.data.links.length >= 1);
   r = await house("POST", "/api/links", { title: "Yr", url: "yr.no" });

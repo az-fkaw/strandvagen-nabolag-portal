@@ -102,6 +102,16 @@ caches nothing and only shows a friendly page when the phone is offline.
 An installed app also redraws itself with fresh data when it is reopened
 after more than five minutes.
 
+## What's new
+
+Each phone or PC remembers when it last looked at the board and at the
+calendar (in the browser, `public/js/news.js`); nothing about who read what
+is stored on the server. The menu shows how many posts have something new
+(a new post or new comments) and how many activities were added since; on the
+pages, new posts and activities say "Ny", and new comments are opened and
+highlighted. A house's own posts and comments never count as new. A post
+with a new comment comes back to the top of the board (after pinned posts).
+
 ## Pictures
 
 Posts can carry up to four pictures (`images` in `portal.config.js`).
