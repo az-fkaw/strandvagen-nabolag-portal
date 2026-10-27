@@ -6,6 +6,7 @@ import {
   useDebounced,
 } from "../lib.js";
 import { AppTip } from "../install.js";
+import { markSeen, seenSince } from "../news.js";
 
 // The optional "who in the house wrote this", remembered per device.
 const NAME_KEY = "nabolag:navn";
@@ -18,6 +19,8 @@ export function WallPage({ cfg }) {
   const [posts, setPosts] = useState(null);
   const [more, setMore] = useState(false);
   const [writing, setWriting] = useState(false);
+  // What was new when the page opened stays marked while it is open.
+  const [since] = useState(() => seenSince("wall"));
 
   const load = (offset = 0) => {
     const params = new URLSearchParams({ offset });
@@ -27,6 +30,7 @@ export function WallPage({ cfg }) {
     return api(`/api/posts?${params}`).then((r) => {
       setPosts((old) => (offset ? [...old, ...r.posts] : r.posts));
       setMore(r.more);
+      markSeen("wall", r.now);
     }, showError);
   };
   useEffect(() => {
@@ -71,7 +75,7 @@ export function WallPage({ cfg }) {
           ? html`<${Empty} icon="🔍" title="Ingen innlegg passer">Prøv et annet søk eller en annen kategori.<//>`
           : html`<${Empty} icon="👋" title="Ingen innlegg ennå">Bli den første som skriver noe til naboene!<//>`
         : posts.map(
-            (p) => html`<${PostCard} key=${p.id} post=${p} cfg=${cfg}
+            (p) => html`<${PostCard} key=${p.id} post=${p} cfg=${cfg} since=${since}
               onChange=${replace} onDelete=${remove} onHouse=${(h) => setHouse(h)} />`,
           )}
     ${more && html`<button class="btn block" onClick=${() => load(posts.length)}>Vis flere innlegg</button>`}
@@ -199,7 +203,10 @@ function PostImages({ images }) {
 const FOLD_CHARS = 600;
 const FOLD_LINES = 10;
 
-function PostCard({ post, cfg, onChange, onDelete, onHouse }) {
+// New to this device: written by another house after it last looked.
+const isNew = (item, cfg, since) => !!since && item.houseId !== cfg.me.id && item.createdAt > since;
+
+function PostCard({ post, cfg, since, onChange, onDelete, onHouse }) {
   const me = cfg.me;
   const mine = post.houseId === me.id;
   const canEdit = mine || me.isAdmin;
@@ -207,6 +214,8 @@ function PostCard({ post, cfg, onChange, onDelete, onHouse }) {
   const [replying, setReplying] = useState(false);
   const [unfolded, setUnfolded] = useState(false);
   const long = post.body.length > FOLD_CHARS || post.body.split("\n").length > FOLD_LINES;
+  const fresh = isNew(post, cfg, since);
+  const freshComments = post.comments.filter((c) => isNew(c, cfg, since)).length;
 
   const remove = async () => {
     if (!confirm("Slette innlegget? Kommentarene forsvinner også.")) return;
@@ -236,6 +245,10 @@ function PostCard({ post, cfg, onChange, onDelete, onHouse }) {
         </div>
       </div>
       <div class="post-tags">
+        ${fresh && html`<span class="badge new">Ny</span>`}
+        ${!fresh && freshComments > 0 && html`<span class="badge new">
+          ${freshComments} ${freshComments === 1 ? "ny kommentar" : "nye kommentarer"}
+        </span>`}
         ${post.pinned && html`<span class="badge pin"><${Icon} name="pin" size=${14} /> Festet</span>`}
         <${Badge} category=${byId(cfg.postCategories, post.category)} />
       </div>
@@ -266,7 +279,7 @@ function PostCard({ post, cfg, onChange, onDelete, onHouse }) {
     </footer>
 
     ${(post.comments.length > 0 || replying) &&
-    html`<${Comments} post=${post} cfg=${cfg} onChange=${onChange} focus=${replying} />`}
+    html`<${Comments} post=${post} cfg=${cfg} since=${since} onChange=${onChange} focus=${replying} />`}
   </article>`;
 }
 
@@ -299,11 +312,12 @@ function PostEditor({ cfg, post, onDone }) {
 // Long threads show the last few comments until opened.
 const COMMENTS_SHOWN = 3;
 
-function Comments({ post, cfg, onChange, focus }) {
+function Comments({ post, cfg, since, onChange, focus }) {
   const [text, setText] = useState("");
   const [all, setAll] = useState(false);
   const [busy, setBusy] = useState(false);
-  const hidden = all ? 0 : Math.max(0, post.comments.length - COMMENTS_SHOWN);
+  const fresh = post.comments.filter((c) => isNew(c, cfg, since)).length; // the newest; always shown
+  const hidden = all ? 0 : Math.max(0, post.comments.length - Math.max(COMMENTS_SHOWN, fresh));
 
   const send = async (e) => {
     e.preventDefault();
@@ -329,7 +343,7 @@ function Comments({ post, cfg, onChange, focus }) {
       Vis ${hidden === 1 ? "én kommentar til" : `${hidden} kommentarer til`}
     </button>`}
     ${post.comments.slice(hidden).map(
-      (c) => html`<div class="comment" key=${c.id}>
+      (c) => html`<div class=${`comment${isNew(c, cfg, since) ? " new" : ""}`} key=${c.id}>
         <${Avatar} name=${c.houseName} id=${c.houseId} size=${30} />
         <div class="bubble">
           <div class="comment-head">

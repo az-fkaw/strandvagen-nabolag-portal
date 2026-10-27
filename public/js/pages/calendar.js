@@ -5,6 +5,7 @@ import {
   addDays, api, byId, dayISO, eventLastDay, eventWhen, formatDay, linkify, monthName, parseDay,
   recall, remember, showError, toast, todayISO, useForm,
 } from "../lib.js";
+import { markSeen, seenSince } from "../news.js";
 
 const VIEW_KEY = "nabolag:kalendervisning";
 
@@ -16,15 +17,24 @@ export function CalendarPage({ cfg }) {
   const [showPast, setShowPast] = useState(false);
   const [month, setMonth] = useState({ y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) - 1 });
   const [day, setDay] = useState(today);
+  // What was new when the page opened stays marked while it is open.
+  const [since] = useState(() => seenSince("calendar"));
   const [openId, setOpenId] = useState(Number(new URLSearchParams(location.search).get("aktivitet")) || null);
   const [editing, setEditing] = useState(null); // an event, or {} for a new one
 
   useEffect(() => {
-    api("/api/events").then((r) => setEvents(r.events), showError);
+    api("/api/events").then((r) => {
+      setEvents(r.events);
+      markSeen("calendar", r.now);
+    }, showError);
   }, []);
 
+  // `isNew`: added by another house since this device last looked.
   const shown = useMemo(
-    () => (events || []).filter((e) => !category || e.category === category),
+    () =>
+      (events || [])
+        .filter((e) => !category || e.category === category)
+        .map((e) => ({ ...e, isNew: !!since && e.houseId !== cfg.me.id && e.createdAt > since })),
     [events, category],
   );
   const changeView = (v) => {
@@ -132,7 +142,7 @@ function EventRow({ cfg, event: e, onOpen, onChange, past }) {
         <span>${formatDay(e.startDate, { month: "short" }).replace(".", "").toLowerCase()}</span>
       </span>
       <span class="event-info">
-        <span class="event-title">${e.title}</span>
+        <span class="event-title">${e.isNew && html`<span class="badge new">Ny</span> `}${e.title}</span>
         <span class="meta">
           <span><${Icon} name="clock" size=${15} /> ${timeLabel(e)}</span>
           ${e.location && html`<span><${Icon} name="place" size=${15} /> ${e.location}</span>`}

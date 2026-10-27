@@ -35,6 +35,7 @@ const ROUTES = [
   ["GET", "/api/images/:id", "hus", getImage],
   ["GET", "/api/storage", "admin", storage],
 
+  ["GET", "/api/news", "hus", news],
   ["GET", "/api/events", "hus", listEvents],
   ["POST", "/api/events", "hus", createEvent],
   ["PUT", "/api/events/:id", "hus", updateEvent],
@@ -424,12 +425,12 @@ async function listPosts({ env, url }) {
   const offset = Math.max(0, Number(q.get("offset")) || 0);
   const { results } = await env.DB.prepare(
     `${POST_SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-     ORDER BY p.pinned DESC, p.id DESC LIMIT ? OFFSET ?`,
+     ORDER BY p.pinned DESC, p.activity_at DESC, p.id DESC LIMIT ? OFFSET ?`,
   )
     .bind(...args, POSTS_PER_PAGE + 1, offset)
     .all();
   const posts = results.slice(0, POSTS_PER_PAGE);
-  return { posts: await withDetails(env, posts), more: results.length > POSTS_PER_PAGE };
+  return { now: now(), posts: await withDetails(env, posts), more: results.length > POSTS_PER_PAGE };
 }
 
 // Posts as the pages want them: with their comments and pictures.
@@ -497,7 +498,10 @@ async function createPost({ env, me, body }) {
     if (ready.n !== imageIds.length)
       throw new HttpError(400, "Et av bildene er ikke lenger tilgjengelig. Fjern det og last det opp på nytt.");
   }
-  const res = await env.DB.prepare("INSERT INTO posts (house_id, author, category, body) VALUES (?, ?, ?, ?)")
+  const res = await env.DB.prepare(
+    `INSERT INTO posts (house_id, author, category, body, activity_at)
+     VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+  )
     .bind(me.id, f.author, f.category, f.body)
     .run();
   const postId = res.meta.last_row_id;
@@ -537,9 +541,15 @@ async function pinPost({ env, body, params }) {
 async function createComment({ env, me, body, params }) {
   const id = idParam(params);
   await onePost(env, id); // 404 if the post is gone
-  await env.DB.prepare("INSERT INTO comments (post_id, house_id, author, body) VALUES (?, ?, ?, ?)")
-    .bind(id, me.id, text(body.author, "Navnet", { max: 60 }), text(body.body, "Kommentaren", { required: true, max: 2000 }))
-    .run();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO comments (post_id, house_id, author, body) VALUES (?, ?, ?, ?)").bind(
+      id,
+      me.id,
+      text(body.author, "Navnet", { max: 60 }),
+      text(body.body, "Kommentaren", { required: true, max: 2000 }),
+    ),
+    env.DB.prepare("UPDATE posts SET activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(id),
+  ]);
   return onePost(env, id);
 }
 
@@ -613,6 +623,30 @@ async function storage({ env }) {
   return { images: row.count, bytes: row.bytes, freeBytes: config.images.freeBytes };
 }
 
+// ------------------------------------------------------------ what's new
+
+const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+const NEVER = "9999"; // later than every timestamp: nothing counts as new
+
+// How much is new on the board and in the calendar since this device last
+// looked at each (the device keeps those times; the menu shows the counts).
+// Posts with a new comment count too. A house's own posts, comments and
+// activities are never news to it.
+async function news({ env, url, me }) {
+  const since = (key) => (STAMP.test(url.searchParams.get(key) || "") ? url.searchParams.get(key) : NEVER);
+  const wall = since("wall");
+  const calendar = since("calendar");
+  const [posts, events] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM posts p
+       WHERE (p.house_id != ? AND p.created_at > ?)
+          OR EXISTS (SELECT 1 FROM comments c WHERE c.post_id = p.id AND c.house_id != ? AND c.created_at > ?)`,
+    ).bind(me.id, wall, me.id, wall),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM events WHERE house_id != ? AND created_at > ?").bind(me.id, calendar),
+  ]);
+  return { now: now(), wall: posts.results[0].n, calendar: events.results[0].n };
+}
+
 // -------------------------------------------------------------- calendar
 
 // A year back is enough for the month view; older events stay in the
@@ -623,7 +657,7 @@ async function listEvents({ env }) {
      WHERE MAX(e.start_date, e.end_date) >= date('now', '-1 year')
      ORDER BY e.start_date, e.start_time, e.id`,
   ).all();
-  return { events: await withRsvps(env, results) };
+  return { now: now(), events: await withRsvps(env, results) };
 }
 
 async function withRsvps(env, events) {
@@ -646,6 +680,7 @@ async function withRsvps(env, events) {
     endTime: e.end_time,
     location: e.location,
     description: e.description,
+    createdAt: e.created_at,
     going: results.filter((r) => r.event_id === e.id).map((r) => ({ id: r.id, name: r.name })),
   }));
 }
